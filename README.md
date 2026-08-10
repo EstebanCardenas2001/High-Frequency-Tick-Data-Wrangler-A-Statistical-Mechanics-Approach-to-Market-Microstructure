@@ -1,0 +1,2 @@
+# High-Frequency-Tick-Data-Wrangler-A-Statistical-Mechanics-Approach-to-Market-Microstructure
+ Processes millions of raw, high-frequency cryptocurrency trades (ticks) and applies advanced market microstructure theory to extract predictive, low-noise signals. By treating financial markets as complex, non-equilibrium thermodynamic systems, this project bridges the gap between theoretical physics and quantitative finance
