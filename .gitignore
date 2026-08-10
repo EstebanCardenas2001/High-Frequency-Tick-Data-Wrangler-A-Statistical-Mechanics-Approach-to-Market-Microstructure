@@ -1,0 +1,22 @@
+# Ignore Data Files (NEVER push large datasets to GitHub)
+data/*.csv
+data/*.zip
+*.csv
+*.zip
+
+# Ignore Python Cache & Compiled Files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore Virtual Environments
+venv/
+env/
+.env
+
+# Ignore Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Ignore Mac System Files
+.DS_Store
