@@ -1,8 +1,10 @@
 # Ignore Data Files (NEVER push large datasets to GitHub)
 data/*.csv
 data/*.zip
+*.part
 *.csv
 *.zip
+*.part
 
 # Ignore Python Cache & Compiled Files
 __pycache__/
@@ -13,6 +15,9 @@ __pycache__/
 venv/
 env/
 .env
+
+# Ignore Test Cache
+.pytest_cache/
 
 # Ignore Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
