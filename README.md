@@ -1,24 +1,16 @@
-# High-Frequency Tick Data Wrangler: A Statistical Mechanics Approach to Market Microstructure
+# High-frequency tick data wrangler
 
-A Python pipeline that ingests millions of raw cryptocurrency trades (ticks) from Binance's public data repository and applies market-microstructure theory to them: event-based resampling, normality testing, realized-volatility signature analysis, and an Order Flow Imbalance (OFI) model of short-term returns.
+A Python pipeline for raw cryptocurrency trades (ticks) from Binance's public data archive. It downloads a day of trades, resamples them into time, volume and dollar bars, tests how close the bar returns are to a normal distribution, estimates realized volatility across sampling frequencies, and checks whether Order Flow Imbalance (OFI) predicts the next short-term return.
 
-The project treats financial markets as complex, non-equilibrium statistical systems and uses that analogy to motivate each step of the analysis.
+The project started from an idea borrowed from physics: clock time is not always the natural variable for a system. Models such as Black–Scholes assume independent, identically distributed price changes, but returns sampled at fixed time intervals show heavy tails and volatility clustering. Sampling by traded volume or traded value instead (an "intrinsic time" that runs faster when the market is busy) removes most of that, and the rest of the analysis builds on it.
 
-## The Physics of Financial Markets
+Main results for BTCUSDT on 2026-01-01 (1.45 M trades):
 
-Classical financial models (like Black-Scholes) assume price changes are Independent and Identically Distributed (IID), essentially modeling trades as random, non-interacting particles in an ideal gas. In reality, markets exhibit herd behavior, volatility clustering, and heavy-tailed risk events.
+- One-minute time bars have an excess kurtosis of 11. Dollar bars of $2.5 M have 0.07 and do not reject normality (Jarque–Bera p = 0.43), while time bars with the same number of bars still do.
+- Realized volatility rises from 12.6% when sampled every second to about 15% from 5 minutes on, where it levels off.
+- Trade-based OFI predicts the next 10 s return with an out-of-sample R² of 0.004 and a 56% directional hit rate: measurable, but far too small to trade on.
 
-| Quantitative Finance Concept | Statistical Physics Analogy | Implementation in Pipeline |
-| :--- | :--- | :--- |
-| **High-Frequency Ticks** | Microscopic particle collisions | Ingesting raw, individual exchange matching events. |
-| **Dollar / Volume Bars** | Arc-length (intrinsic-time) parameterization | Changing the independent variable from clock time *t* to cumulative economic throughput to stabilize variance. |
-| **Fat Tails & Kurtosis** | Non-equilibrium states | Testing empirically whether clock-time sampling yields heavy-tailed returns while event-based sampling recovers a near-Gaussian distribution. |
-| **Microstructure Noise** | Thermal jitter at microscopic scales | Using a Volatility Signature Plot to find the sampling frequency at which microstructure effects stop biasing realized volatility. |
-| **Order Flow Imbalance (OFI)** | Net applied force | Measuring net aggressive buying/selling pressure and testing whether it predicts the next price move. |
-
----
-
-## Project Structure
+## Project structure
 
 ```
 .
@@ -39,7 +31,7 @@ Classical financial models (like Black-Scholes) assume price changes are Indepen
 Requires Python 3.10+.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/EstebanCardenas2001/High-Frequency-Tick-Data-Wrangler-A-Statistical-Mechanics-Approach-to-Market-Microstructure.git
 cd High-Frequency-Tick-Data-Wrangler-A-Statistical-Mechanics-Approach-to-Market-Microstructure
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
@@ -92,18 +84,16 @@ pytest
 
 The tests use synthetic tick data and need no network access.
 
----
+## Modules
 
-## Core Modules & Architecture
-
-### 1. Data Ingestion & Memory Optimization (`tick_wrangler.py`)
+### 1. Data ingestion and memory use (`tick_wrangler.py`)
 * Downloads daily trade archives from `data.binance.vision`, verifies them against Binance's published SHA256 checksum, and caches them in `data/`. Pandas reads the zip directly, so no extraction step is needed.
 * Handles upstream **schema drift**: Binance switched spot timestamps from milliseconds to microseconds in 2025. The unit is inferred from the timestamp's magnitude rather than the file date, and an optional header row is detected automatically.
 * **Memory optimization**: loads only the 4 needed columns and stores quantity as `float32`. Price is kept in `float64` because float32 has only ~7 significant digits and would corrupt quotes (87648.22 → 87648.21875). On the 1.45 M-trade sample day, memory drops from 58.1 MB (naive full load) to 29.0 MB.
 * **Vectorized features**: trade direction (aggressor side), signed volume, Cumulative Volume Delta (CVD), and a rolling 1,000-tick VWAP. All running sums are computed in `float64`. A float32 cumulative sum drifts by about 1% over a day of ticks and shifts bar boundaries.
 
-### 2. Event-Based Resampling & Normality (`microstructure.py`)
-Log-returns `r_t = ln(P_t / P_{t-1})` are computed in three coordinate systems: **Time Bars**, **Volume Bars**, and **Dollar Bars**. Event bars are indexed by the timestamp of their last tick.
+### 2. Event-based resampling and normality (`microstructure.py`)
+Log-returns $`r_t = \ln(P_t / P_{t-1})`$ are computed in three coordinate systems: **Time Bars**, **Volume Bars**, and **Dollar Bars**. Event bars are indexed by the timestamp of their last tick.
 
 Aggregating more trades per bar makes returns more Gaussian on its own (Central Limit Theorem). To isolate the effect of the *sampling clock*, `matching_time_freq` builds a resolution-matched control: time bars with the same bar count as the dollar bars.
 
@@ -120,30 +110,30 @@ Even at matched resolution, time-bar returns reject normality, while dollar- and
 
 *Caveat:* this is a single day, and with roughly 100–200 bars the Jarque-Bera test has limited power. A failure to reject normality is evidence, not proof.
 
-### 3. Microstructure Noise & Realized Volatility (`microstructure.py`)
+### 3. Microstructure noise and realized volatility (`microstructure.py`)
 Annualized realized volatility is computed across sampling frequencies from 1 s to 30 min:
 
-`RV_annual = sqrt(365 * (1/D) * sum(r_i^2))`, where *D* is the number of days in the sample.
+$$RV_\text{annual} = \sqrt{\frac{365}{D}\sum_i r_i^2}$$
+
+where $D$ is the number of days in the sample.
 
 * The **Volatility Signature Plot** shows how microstructure effects bias RV at high frequencies. Bid-ask bounce *inflates* RV. Stale prices and split orders (positively autocorrelated tick returns) *deflate* it.
 * `find_noise_cutoff` estimates the latent-volatility plateau as the median RV of the slowest frequencies. It returns the first frequency from which RV stays within ±10% of that plateau.
 * For BTCUSDT the curve **rises** from 12.6% (1 s) toward roughly 15% (5 min and slower). With a $0.01 tick on a ~$87k asset, bid-ask bounce is negligible, and the dominant high-frequency distortion is positive autocorrelation. The detected cutoff is **5 min**. On a single day the low-frequency estimates rest on few returns (47 at 30 min), so the plateau itself is noisy.
 
-### 4. Predictive Modeling: Order Flow Imbalance (`modeling.py`)
-* OFI over each interval is the sum of signed trade volume: `OFI_t = sum(Volume_i * Direction_i)`. This is a trade-based proxy; true order-book OFI requires quote data.
+### 4. Order Flow Imbalance model (`modeling.py`)
+* OFI over each interval is the sum of signed trade volume: $`\mathrm{OFI}_t = \sum_i V_i\, d_i`$, with $`V_i`$ the volume and $`d_i = \pm 1`$ the direction of trade $i$. This is a trade-based proxy; true order-book OFI requires quote data.
 * The target is the **next** interval's log return in basis points (`shift(-1)`), so the feature at *t* only predicts *t+1*.
 * Leakage controls: the train/test split is chronological (first 80% / last 20%), and the outlier-trimming quantiles (1% / 99% of OFI) are learned on the training set only.
 * Model: Ridge regression (L2, `alpha=1.0`).
 
 Out-of-sample results on 10 s bars for 2026-01-01: **R² = 0.004**, with a directional hit rate of **56%** on non-zero returns. Concurrent OFI is known to explain a large share of same-interval price changes. Its predictive power for the *next* interval is small, as expected in a liquid market. Treat this as a measurement, not a trading strategy: it ignores transaction costs and covers a single day.
 
----
-
-## Data Source
+## Data source
 
 Binance public market data: <https://data.binance.vision> (`spot/daily/trades`). Each row is one trade: `trade_id, price, qty, quote_qty, timestamp, is_buyer_maker, is_best_match`. When `is_buyer_maker` is `True`, the seller was the aggressor, so the trade is labeled a sell (−1).
 
-## Limitations & Possible Extensions
+## Limitations and possible extensions
 
 * All results above come from a single trading day. Running over many days or symbols would make them robust.
 * Bar thresholds (50 BTC, $2.5 M) are fixed; they could be set adaptively, for example from a target number of bars per day.
